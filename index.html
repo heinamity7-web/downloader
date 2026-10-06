@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="my">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Video Downloader</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Noto Sans Myanmar", "Myanmar Text", sans-serif;
+    background: #141414; color: #f5f5f5; min-height: 100vh;
+    padding: 20px 16px 40px;
+  }
+  .wrap { max-width: 520px; margin: 0 auto; }
+  header { text-align: center; margin-bottom: 20px; }
+  .logo {
+    width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 10px;
+    background: linear-gradient(135deg, #e50914, #7a0c10);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 28px;
+  }
+  h1 { font-size: 22px; }
+  .sub { color: #aaa; font-size: 13px; margin-top: 4px; }
+  .card {
+    background: #1f1f1f; border-radius: 14px; padding: 16px;
+    margin-top: 14px; border: 1px solid #2c2c2c;
+  }
+  label { font-size: 14px; color: #ccc; display: block; margin-bottom: 8px; }
+  input[type=text] {
+    width: 100%; padding: 13px 14px; border-radius: 10px; font-size: 15px;
+    border: 1px solid #3a3a3a; background: #101010; color: #fff; outline: none;
+  }
+  input[type=text]:focus { border-color: #e50914; }
+  .btn {
+    display: block; width: 100%; padding: 14px; margin-top: 12px;
+    border: none; border-radius: 10px; font-size: 16px; font-weight: 700;
+    cursor: pointer; color: #fff; background: #e50914;
+  }
+  .btn:active { transform: scale(.98); }
+  .btn.green { background: #1db954; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .badge {
+    display: inline-block; font-size: 12px; font-weight: 700; padding: 4px 10px;
+    border-radius: 20px; background: #333; margin-bottom: 10px;
+  }
+  .badge.yt { background: #c00; } .badge.fb { background: #1877f2; }
+  .badge.tt { background: #111; border: 1px solid #555; } .badge.direct { background: #555; }
+  video { width: 100%; border-radius: 10px; background: #000; max-height: 300px; }
+  .thumb { width: 100%; border-radius: 10px; max-height: 260px; object-fit: cover; }
+  .meta { margin: 10px 0; font-size: 14px; }
+  .meta .t { font-weight: 700; margin-bottom: 4px; }
+  .meta .d { color: #aaa; font-size: 13px; }
+  select {
+    width: 100%; padding: 11px; border-radius: 10px; margin: 10px 0;
+    background: #101010; color: #fff; border: 1px solid #3a3a3a; font-size: 15px;
+  }
+  .progress { height: 8px; background: #333; border-radius: 6px; overflow: hidden; margin-top: 12px; display: none; }
+  .progress > div { height: 100%; width: 0%; background: #1db954; transition: width .2s; }
+  .status { margin-top: 10px; font-size: 14px; min-height: 20px; color: #ccc; }
+  .status.err { color: #ff6b6b; } .status.ok { color: #1db954; }
+  .hist { margin-top: 6px; }
+  .hist-item {
+    font-size: 13px; color: #bbb; padding: 9px 4px; border-bottom: 1px solid #2a2a2a;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+  }
+  .note { font-size: 12px; color: #888; text-align: center; margin-top: 18px; line-height: 1.6; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">⬇</div>
+    <h1>Video Downloader</h1>
+    <div class="sub">YouTube • Facebook • TikTok • တိုက်ရိုက်လင့်ခ်</div>
+  </header>
+
+  <div class="card">
+    <label for="url">Video link ကို paste လုပ်ပါ</label>
+    <input type="text" id="url" placeholder="https://..." autocomplete="off" inputmode="url">
+    <button class="btn" id="fetchBtn" onclick="fetchVideo()">ရှာဖွေ</button>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="card hidden" id="resultCard">
+    <span class="badge" id="platBadge">-</span>
+    <div id="preview"></div>
+    <div class="meta"><div class="t" id="vTitle"></div><div class="d" id="vDur"></div></div>
+    <select id="quality" class="hidden"></select>
+    <button class="btn green" id="dlBtn" onclick="downloadVideo()">ဒေါင်းလုဒ်ဆွဲမယ်</button>
+    <div class="progress" id="prog"><div id="progBar"></div></div>
+  </div>
+
+  <div class="card hist hidden" id="histCard">
+    <label>နောက်ဆုံး လင့်ခ်များ</label>
+    <div id="histList"></div>
+  </div>
+
+  <div class="note">ကိုယ်ပိုင် video သို့မဟုတ် သိမ်းခွင့်ရှိတဲ့ video တွေပဲ ဒေါင်းလုဒ်ဆွဲပါ။<br>Private / login တောင်းတဲ့ video တွေ မရနိုင်ပါ။</div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let current = null; // {streams:[{q,url}], title, filename}
+
+const T = {
+  fetching: 'ရှာဖွေနေပါတယ်…',
+  invalid: 'လင့်ခ် မမှန်ပါ — စစ်ကြည့်ပါ။',
+  notfound: 'Video ရှာမတွေ့ပါ။ Public video ဟုတ်မဟုတ် စစ်ပါ။',
+  apifail: 'ဆာဗာ အလုပ်မလုပ်သေးပါ — ခဏနေပြီးမှ ပြန်နှိပ်ပါ။',
+  preparing: 'ဒေါင်းလုဒ်အတွက် ပြင်ဆင်နေပါတယ်…',
+  shareOpen: 'Share menu ပွင့်လာပါမယ် — Save Video (သို့) Save to Files ရွေးပါ။',
+  done: 'ပြီးပါပြီ ✅',
+  tabOpened: 'Video ကို tab အသစ်မှာ ဖွင့်ပေးလိုက်ပြီ — ပေါ်လာတဲ့ video မှာ Share → Save Video နှိပ်ပါ။',
+  directOnly: 'ဒီလင့်ခ်က တိုက်ရိုက်ဆွဲမရပါ — tab အသစ်မှာ ဖွင့်ပေးလိုက်ပါတယ်။'
+};
+
+function setStatus(msg, cls) {
+  const s = $('status'); s.textContent = msg || '';
+  s.className = 'status' + (cls ? ' ' + cls : '');
+}
+function fmtDur(sec) {
+  if (!sec || sec <= 0) return '';
+  sec = Math.round(sec);
+  const m = Math.floor(sec / 60), s = sec % 60;
+  return m + ':' + String(s).padStart(2, '0');
+}
+function safeName(t) {
+  return (t || 'video').replace(/[^\w\u1000-\u109F\- ]+/g, '').trim().slice(0, 50) || 'video';
+}
+
+function detectPlatform(u) {
+  try {
+    const h = new URL(u).hostname.toLowerCase();
+    if (h.includes('youtube.com') || h.includes('youtu.be')) return 'youtube';
+    if (h.includes('facebook.com') || h.includes('fb.watch')) return 'facebook';
+    if (h.includes('tiktok.com')) return 'tiktok';
+  } catch (e) { return null; }
+  return 'direct';
+}
+function badgeFor(p) {
+  const b = $('platBadge');
+  b.className = 'badge ' + (p === 'youtube' ? 'yt' : p === 'facebook' ? 'fb' : p === 'tiktok' ? 'tt' : 'direct');
+  b.textContent = p === 'youtube' ? 'YouTube' : p === 'facebook' ? 'Facebook' : p === 'tiktok' ? 'TikTok' : 'တိုက်ရိုက်လင့်ခ်';
+}
+function ytId(u) {
+  const m = u.match(/(?:youtube\.com\/(?:watch\?v=|shorts\/|embed\/)|youtu\.be\/)([\w-]{11})/);
+  return m ? m[1] : null;
+}
+
+async function fetchVideo() {
+  const raw = $('url').value.trim();
+  setStatus(''); $('resultCard').classList.add('hidden'); current = null;
+  if (!raw || !/^https?:\/\//i.test(raw)) { setStatus(T.invalid, 'err'); return; }
+  const plat = detectPlatform(raw);
+  if (!plat) { setStatus(T.invalid, 'err'); return; }
+  setStatus(T.fetching);
+  $('fetchBtn').disabled = true;
+  try {
+    if (plat === 'youtube') await resolveYouTube(raw);
+    else if (plat === 'facebook') await resolveFacebook(raw);
+    else if (plat === 'tiktok') await resolveTikTok(raw);
+    else resolveDirect(raw);
+    badgeFor(plat);
+    if (!current || !current.streams.length) throw new Error('notfound');
+    showResult();
+    saveHist(raw);
+    setStatus('');
+  } catch (e) {
+    setStatus(e.message === 'notfound' ? T.notfound : T.apifail, 'err');
+  }
+  $('fetchBtn').disabled = false;
+}
+
+async function resolveYouTube(pageUrl) {
+  const id = ytId(pageUrl);
+  if (!id) throw new Error('notfound');
+  const r = await fetch('https://pipedapi.ducks.party/streams/' + id);
+  if (!r.ok) throw new Error('apifail');
+  const d = await r.json();
+  const vs = (d.videoStreams || []).filter(s => (s.mimeType || '').includes('video/mp4') && s.url);
+  if (!vs.length) throw new Error('notfound');
+  const order = { '1080p': 4, '720p': 3, '480p': 2, '360p': 1 };
+  vs.sort((a, b) => (order[b.quality] || 0) - (order[a.quality] || 0));
+  current = {
+    title: d.title || 'YouTube video',
+    dur: fmtDur(d.duration),
+    thumb: d.thumbnailUrl || '',
+    filename: safeName(d.title) + '.mp4',
+    streams: vs.map(s => ({ q: s.quality || 'mp4', url: s.url }))
+  };
+}
+
+async function resolveFacebook(pageUrl) {
+  const r = await fetch('https://nntech-free-fb-api.vercel.app/api/download?url=' + encodeURIComponent(pageUrl));
+  if (!r.ok) throw new Error('apifail');
+  const d = await r.json();
+  if (!d.success || !d.data || !(d.data.hd || d.data.sd)) throw new Error('notfound');
+  const streams = [];
+  if (d.data.hd) streams.push({ q: 'HD', url: d.data.hd });
+  if (d.data.sd) streams.push({ q: 'SD', url: d.data.sd });
+  current = {
+    title: 'Facebook video',
+    dur: d.data.duration_ms ? fmtDur(d.data.duration_ms / 1000) : '',
+    thumb: d.data.thumbnail || '',
+    filename: 'facebook-video.mp4',
+    streams
+  };
+}
+
+async function resolveTikTok(pageUrl) {
+  const r = await fetch('https://www.tikwm.com/api/?url=' + encodeURIComponent(pageUrl));
+  if (!r.ok) throw new Error('apifail');
+  const d = await r.json();
+  const play = d.data && (d.data.play || d.data.wmplay);
+  if (d.code !== 0 || !play) throw new Error('notfound');
+  current = {
+    title: (d.data && d.data.title) || 'TikTok video',
+    dur: (d.data && d.data.duration) ? fmtDur(d.data.duration) : '',
+    thumb: (d.data && (d.data.cover || d.data.origin_cover)) || '',
+    filename: safeName(d.data && d.data.title) + '.mp4',
+    streams: [{ q: d.data.play ? 'No watermark' : 'TikTok', url: play }]
+  };
+}
+
+function resolveDirect(pageUrl) {
+  current = {
+    title: pageUrl.split('/').pop().split('?')[0] || 'video',
+    dur: '', thumb: '',
+    filename: (pageUrl.split('/').pop().split('?')[0] || 'video').slice(0, 60),
+    streams: [{ q: 'Original', url: pageUrl }]
+  };
+}
+
+function showResult() {
+  $('resultCard').classList.remove('hidden');
+  const pv = $('preview');
+  pv.innerHTML = '';
+  if (current.thumb) {
+    const img = document.createElement('img');
+    img.src = current.thumb; img.className = 'thumb'; img.alt = '';
+    pv.appendChild(img);
+  }
+  $('vTitle').textContent = current.title;
+  $('vDur').textContent = current.dur;
+  const q = $('quality');
+  q.innerHTML = '';
+  if (current.streams.length > 1) {
+    current.streams.forEach((s, i) => {
+      const o = document.createElement('option');
+      o.value = i; o.textContent = s.q;
+      q.appendChild(o);
+    });
+    q.classList.remove('hidden');
+  } else q.classList.add('hidden');
+  $('prog').style.display = 'none'; $('progBar').style.width = '0%';
+  $('resultCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function downloadVideo() {
+  if (!current) return;
+  const qi = $('quality').classList.contains('hidden') ? 0 : parseInt($('quality').value || '0', 10);
+  const stream = current.streams[qi] || current.streams[0];
+  const btn = $('dlBtn');
+  btn.disabled = true;
+  setStatus(T.preparing);
+  $('prog').style.display = 'block'; $('progBar').style.width = '8%';
+  try {
+    const res = await fetch(stream.url);
+    if (!res.ok) throw new Error('fetchfail');
+    const total = parseInt(res.headers.get('content-length') || '0', 10);
+    const reader = res.body.getReader();
+    const chunks = []; let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value); got += value.length;
+      if (total) $('progBar').style.width = Math.min(99, Math.round(got / total * 100)) + '%';
+    }
+    const blob = new Blob(chunks, { type: 'video/mp4' });
+    $('progBar').style.width = '100%';
+    const file = new File([blob], current.filename, { type: 'video/mp4' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file] });
+      setStatus(T.shareOpen, 'ok');
+    } else {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = current.filename;
+      document.body.appendChild(a); a.click();
+      setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+      setStatus(T.done, 'ok');
+    }
+  } catch (e) {
+    window.open(stream.url, '_blank');
+    setStatus(T.tabOpened, '');
+  }
+  btn.disabled = false;
+}
+
+// history
+function saveHist(u) {
+  try {
+    let h = JSON.parse(localStorage.getItem('vd_hist') || '[]');
+    h = [u].concat(h.filter(x => x !== u)).slice(0, 8);
+    localStorage.setItem('vd_hist', JSON.stringify(h));
+    renderHist();
+  } catch (e) {}
+}
+function renderHist() {
+  let h = [];
+  try { h = JSON.parse(localStorage.getItem('vd_hist') || '[]'); } catch (e) {}
+  if (!h.length) { $('histCard').classList.add('hidden'); return; }
+  $('histCard').classList.remove('hidden');
+  $('histList').innerHTML = '';
+  h.forEach(u => {
+    const d = document.createElement('div');
+    d.className = 'hist-item'; d.textContent = u;
+    d.onclick = () => { $('url').value = u; fetchVideo(); };
+    $('histList').appendChild(d);
+  });
+}
+renderHist();
+$('url').addEventListener('keydown', e => { if (e.key === 'Enter') fetchVideo(); });
+</script>
+</body>
+</html>
